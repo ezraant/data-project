@@ -7,7 +7,12 @@ df = pd.read_csv('/content/sample_data/PlayerStatistics.csv')
 df['gameDateTimeEst'] = pd.to_datetime(df['gameDateTimeEst'])
 
 # Filter out data from before the year 2004
-df_filtered = df[df['gameDateTimeEst'].dt.year >= 2004]
+df_after_2004 = df[df['gameDateTimeEst'].dt.year >= 2004]
+
+#only include the columns we need: personId, firstName, lastName, gameDateTimeEst, playerteamName, opponentteamName, gameType, home, numMinutes, points, steals, reboundsTotal, assists, blocks, fieldGoalsAttempted, threePointersMade
+columns_to_keep = ['personId', 'firstName', 'lastName', 'gameDateTimeEst', 'playerteamName', 'opponentteamName', 'gameType', 'home', 'numMinutes', 'points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'fieldGoalsAttempted', 'threePointersMade']
+df_filtered = df_after_2004[columns_to_keep]
+
 
 # Save the filtered DataFrame to a new CSV file
 df_filtered.to_csv('PlayerStatistics_after_2004.csv', index=False)
