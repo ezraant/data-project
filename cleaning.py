@@ -46,7 +46,7 @@ not_in_set_condition = ~df_filtered['personId'].isin(person_ids_since_sept_2023)
 rows_to_remove_condition = before_sept_2023_condition & not_in_set_condition
 
 # Filter the DataFrame, keeping only the rows that do NOT meet the removal condition
-df_final_filtered = df_filtered[~rows_to_remove_condition]
+df_final_filtered = df_filtered[~rows_to_remove_condition].copy()
 
 print(f"Original df_filtered shape: {df_filtered.shape}")
 print(f"Players who played since Sept 2023: {len(person_ids_since_sept_2023)}")
@@ -57,3 +57,19 @@ print("\nLast 5 rows of df_final_filtered:")
 print(df_final_filtered.tail())
 
 df_final_filtered.to_csv('ActivePlayerStatistics_after_2004.csv', index=False)
+
+# List of columns to convert to numbers
+stats_cols = ['points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'threePointersMade']
+
+for col in stats_cols:  
+    df_final_filtered[col] = pd.to_numeric(df_final_filtered[col], errors='coerce').fillna(0)
+
+df_final_filtered['pointsPerMinute'] = df_final_filtered['points'] / df_final_filtered['numMinutes']
+df_final_filtered['stealsPerMinute'] = df_final_filtered['steals'] / df_final_filtered['numMinutes']
+df_final_filtered['reboundsPerMinute'] = df_final_filtered['reboundsTotal'] / df_final_filtered['numMinutes']
+df_final_filtered['assistsPerMinute'] = df_final_filtered['assists'] / df_final_filtered['numMinutes']
+df_final_filtered['blocksPerMinute'] = df_final_filtered['blocks'] / df_final_filtered['numMinutes']
+df_final_filtered['threesPerMinute'] = df_final_filtered['threePointersMade'] / df_final_filtered['numMinutes']
+
+print("New per-minute columns added to df_final_filtered.")
+df_final_filtered.to_csv('UpdatedPlayerStatistics.csv', index=False)

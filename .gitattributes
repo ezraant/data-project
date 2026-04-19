@@ -1,3 +1,4 @@
 *.csv filter=lfs diff=lfs merge=lfs -text
 PlayerStatistics_after_2004.csv filter=lfs diff=lfs merge=lfs -text
 ActivePlayerStatistics_after_2004.csv filter=lfs diff=lfs merge=lfs -text
+UpdatedPlayerStatistics.csv filter=lfs diff=lfs merge=lfs -text
