@@ -64,12 +64,12 @@ stats_cols = ['points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'threePo
 for col in stats_cols:  
     df_final_filtered[col] = pd.to_numeric(df_final_filtered[col], errors='coerce').fillna(0)
 
-df_final_filtered['pointsPerMinute'] = df_final_filtered['points'] / df_final_filtered['numMinutes']
-df_final_filtered['stealsPerMinute'] = df_final_filtered['steals'] / df_final_filtered['numMinutes']
-df_final_filtered['reboundsPerMinute'] = df_final_filtered['reboundsTotal'] / df_final_filtered['numMinutes']
-df_final_filtered['assistsPerMinute'] = df_final_filtered['assists'] / df_final_filtered['numMinutes']
-df_final_filtered['blocksPerMinute'] = df_final_filtered['blocks'] / df_final_filtered['numMinutes']
-df_final_filtered['threesPerMinute'] = df_final_filtered['threePointersMade'] / df_final_filtered['numMinutes']
+df_final_filtered['pointsPerMinute'] = (df_final_filtered['points'] / df_final_filtered['numMinutes']).round(5)
+df_final_filtered['stealsPerMinute'] = (df_final_filtered['steals'] / df_final_filtered['numMinutes']).round(5)
+df_final_filtered['reboundsPerMinute'] = (df_final_filtered['reboundsTotal'] / df_final_filtered['numMinutes']).round(5)
+df_final_filtered['assistsPerMinute'] = (df_final_filtered['assists'] / df_final_filtered['numMinutes']).round(5)
+df_final_filtered['blocksPerMinute'] = (df_final_filtered['blocks'] / df_final_filtered['numMinutes']).round(5)
+df_final_filtered['threesPerMinute'] = (df_final_filtered['threePointersMade'] / df_final_filtered['numMinutes']).round(5)
 
 print("New per-minute columns added to df_final_filtered.")
 df_final_filtered.to_csv('UpdatedPlayerStatistics.csv', index=False)
