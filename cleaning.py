@@ -13,12 +13,11 @@ df_after_2004 = df[df['gameDateTimeEst'] >= '2003-09-01']
 columns_to_keep = ['personId', 'firstName', 'lastName', 'gameDateTimeEst', 'playerteamName', 'opponentteamName', 'gameType', 'home', 'numMinutes', 'points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'fieldGoalsAttempted', 'threePointersMade']
 df_filtered = df_after_2004[columns_to_keep]
 
+#removing preseason games
 df_filtered = df_filtered[df_filtered['gameType'] != 'Preseason']
 # Save the filtered DataFrame to a new CSV file
-df_filtered.to_csv('PlayerStatistics_after_2004.csv', index=False)
+#df_filtered.to_csv('PlayerStatistics_after_2004.csv', index=False)
 
-#removing preseason games
-print("Filtered data saved to 'PlayerStatistics_after_2004.csv'")
 
 #removing rows with 0 minutes played
 df_filtered['numMinutes'] = pd.to_numeric(df_filtered['numMinutes'], errors='coerce')
@@ -56,7 +55,7 @@ print(f"Final filtered DataFrame shape: {df_final_filtered.shape}")
 print("\nLast 5 rows of df_final_filtered:")
 print(df_final_filtered.tail())
 
-df_final_filtered.to_csv('ActivePlayerStatistics_after_2004.csv', index=False)
+#df_final_filtered.to_csv('ActivePlayerStatistics_after_2004.csv', index=False)
 
 # List of columns to convert to numbers
 stats_cols = ['points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'threePointersMade']
