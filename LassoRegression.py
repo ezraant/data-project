@@ -1,236 +1,145 @@
 import pandas as pd
-from sklearn.linear_model import LinearRegression, Lasso # Import Lasso
+from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_absolute_error
 
+# ============================================================
+#  SETTINGS
+# ============================================================
+FILE_PATH      = "UpdatedPlayerStatistics.csv"
+WINDOW_LONG    = 20    
+WINDOW_SHORT   = 5     
+LASSO_ALPHA    = 0.01  # Lowered for more sensitivity
 
 # ============================================================
-#  SETTINGS (feel free to tweak these)
+#  Step 1: Load Data
 # ============================================================
-
-FILE_PATH      = "UpdatedPlayerStatistics.csv" # Changed to load the CSV with per-minute stats
-LOOKBACK_GAMES = 20   # how many recent games to average over
-LASSO_ALPHA    = 0.1  # Alpha parameter for Lasso regularization
-
-
-# ============================================================
-#  Step 1: Load the data ONCE at the start
-#  (We only do this once so it's fast when you look up players)
-# ============================================================
-
 print("=" * 55)
-print("   🏀  NBA OVER/UNDER PREDICTOR (Lasso Version with Enhanced Features)")
+print("   🏀  NBA PREDICTOR: FULL STAT MOMENTUM EDITION")
 print("=" * 55)
-print("\nLoading data... (this takes a few seconds)")
+print("\nLoading data...")
 
 df_lasso = pd.read_csv(FILE_PATH)
 df_lasso["gameDateTimeEst"] = pd.to_datetime(df_lasso["gameDateTimeEst"])
 df_lasso["fullName"] = df_lasso["firstName"] + " " + df_lasso["lastName"]
 
-# Apply one-hot encoding for all possible opponent teams across the entire dataset
-# This ensures consistency when a specific player might not have played against all teams
+# Global One-Hot Encoding for opponents
 df_lasso = pd.get_dummies(df_lasso, columns=['opponentteamName'], prefix='opp', drop_first=True)
 
-print(f"Ready! Loaded {len(df_lasso):,} game rows.\n")
-
+print(f"Ready! Data loaded.\n")
 
 # ============================================================
-#  Step 2: Define a function that runs the model
-#
-#  A function is like a recipe — you define it once,
-#  then you can call it over and over with different inputs.
+#  Step 2: The Prediction Engine
 # ============================================================
-
-def predict_player_lasso(player_name, stat, line, next_opponent_team):
-    """
-    Given a player name, a stat, and an over/under line,
-    trains a Lasso model on their history and prints a prediction.
-    """
-
-    # --- Filter to just this player ---
+def predict_player_lasso(player_name, stat, line, next_opp, is_home_val):
+    # Filter to player
     player_df = df_lasso[df_lasso["fullName"] == player_name].copy()
 
     if len(player_df) == 0:
-        print(f"\n  Could not find '{player_name}' in the data.")
-        print("  Double-check the spelling (e.g. 'LeBron James', 'Stephen Curry')\n")
-        return   # stop the function here and go back to the menu
-
-    # Sort oldest to newest for rolling averages
-    player_df = player_df.sort_values("gameDateTimeEst", ascending=True).reset_index(drop=True)
-
-    print(f"\n  Found {len(player_df)} games for {player_name}  "
-          f"({player_df['gameDateTimeEst'].min().date()} to "
-          f"{player_df['gameDateTimeEst'].max().date()})")
-
-    # --- Build rolling average features ---
-    # Enhanced feature_cols to include per-minute stats
-    feature_cols = ["points", "reboundsTotal", "assists",
-                    "numMinutes", "fieldGoalsAttempted",
-                    "pointsPerMinute", "stealsPerMinute", "reboundsPerMinute",
-                    "assistsPerMinute", "blocksPerMinute", "threesPerMinute"]
-
-    for col in feature_cols:
-        player_df[f"avg_{col}"] = (
-            player_df[col]
-            .shift(1)
-            .rolling(window=LOOKBACK_GAMES, min_periods=3)
-            .mean()
-        )
-
-    player_df["is_home"] = player_df["home"]
-
-    # player_df no longer needs pd.get_dummies here as it's applied globally
-
-    player_df = player_df.dropna().reset_index(drop=True)
-
-    if len(player_df) < 10:
-        print(f"  Not enough game history to make a prediction (need at least 10 games).\n")
+        print(f"\n  Could not find '{player_name}'. Check spelling!")
         return
 
-    # --- Split into train / test (80% / 20%) ---
-    # Dynamically build input_features to include new rolling avg features and one-hot encoded opponent names
-    input_features = [f"avg_{col}" for col in feature_cols] + ["is_home"]
-    # Get all opponent columns from the global df_lasso, as they were created there
-    opponent_cols = [col for col in df_lasso.columns if col.startswith('opp_')]
-    input_features.extend(opponent_cols)
+    player_df = player_df.sort_values("gameDateTimeEst").reset_index(drop=True)
 
-    # Ensure X has all the columns from input_features, filling with 0 for missing opp_ columns
+    # --- Feature Engineering ---
+    base_cols = ["points", "reboundsTotal", "assists", "steals", "blocks", "threePointersMade",
+                 "numMinutes", "pointsPerMinute", "stealsPerMinute", "reboundsPerMinute", 
+                 "assistsPerMinute", "blocksPerMinute", "threesPerMinute"]
+
+    feature_cols = []
+    for col in base_cols:
+        # Long-term average (Baseline)
+        player_df[f"avg20_{col}"] = player_df[col].shift(1).rolling(window=WINDOW_LONG, min_periods=5).mean()
+        # Short-term momentum (Hot Streak)
+        player_df[f"hot5_{col}"] = player_df[col].shift(1).rolling(window=WINDOW_SHORT, min_periods=2).mean()
+        feature_cols.extend([f"avg20_{col}", f"hot5_{col}"])
+
+    player_df["is_home"] = player_df["home"]
+    player_df = player_df.dropna().reset_index(drop=True)
+
+    if len(player_df) < 15:
+        print(f"  Not enough history for {player_name} (need 15+ games).")
+        return
+
+    # Build Input Features
+    opponent_cols = [col for col in df_lasso.columns if col.startswith('opp_')]
+    input_features = feature_cols + ["is_home"] + opponent_cols
+
     X = player_df[input_features].fillna(0)
     y = player_df[stat]
 
-    split_index = int(len(X) * 0.80)
-    X_train, X_test = X.iloc[:split_index], X.iloc[split_index:]
-    y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
+    # Split (80/20)
+    split = int(len(X) * 0.8)
+    X_train, X_test = X.iloc[:split], X.iloc[split:]
+    y_train, y_test = y.iloc[:split], y.iloc[split:]
 
-    # --- Train the model (Lasso) ---
-    model = Lasso(alpha=LASSO_ALPHA)
+    # Train Model
+    model = Lasso(alpha=LASSO_ALPHA, max_iter=10000)
     model.fit(X_train, y_train)
 
-    # --- Evaluate accuracy ---
-    y_pred_test = model.predict(X_test)
-    mae = mean_absolute_error(y_test, y_pred_test)
-
-    # --- Predict next game with specified opponent ---
-    # Get the last actual game's calculated averages and home status
-    # This assumes the 'next game' will have similar rolling averages to the player's last game
-    latest_historical_features = player_df.iloc[[-1]][[f"avg_{col}" for col in feature_cols] + ["is_home"]].copy()
-
-    # Create a new DataFrame for the next game's prediction
-    # Initialize all features to 0 to properly handle one-hot encoding
+    # Prediction for Next Game
     latest_input = pd.DataFrame(0, index=[0], columns=input_features)
-
-    # Populate the rolling average features and is_home from the last historical game
-    for col in [f"avg_{c}" for c in feature_cols] + ["is_home"]:
-        latest_input[col] = latest_historical_features[col].values[0]
-
-    # Set the one-hot encoded column for the specified next opponent to 1
-    opponent_col_name = f'opp_{next_opponent_team}'
-    if opponent_col_name in latest_input.columns:
-        latest_input[opponent_col_name] = 1
+    
+    # Use the absolute latest game's rolling stats to predict the upcoming one
+    for col in feature_cols:
+        latest_input[col] = player_df[col].iloc[-1]
+    
+    latest_input["is_home"] = is_home_val
+    opp_col = f"opp_{next_opp}"
+    
+    if opp_col not in latest_input.columns:
+        print(f"  Warning: '{next_opp}' not recognized. Using league average defense.")
     else:
-        print(f"  Warning: Opponent '{next_opponent_team}' not found in historical data. This opponent's specific impact will not be modeled.")
-        # If the opponent is not found, its dummy variable remains 0, which is effectively
-        # treating it as the 'dropped' category in drop_first=True, or a new unseen team.
+        latest_input[opp_col] = 1
 
     predicted_stat = model.predict(latest_input)[0]
+    mae = mean_absolute_error(y_test, model.predict(X_test))
 
-    # --- Print results ---
-    print()
+    # Output Results
+    print("\n  " + "=" * 48)
+    print(f"  PREDICTION -> {player_name.upper()} vs {next_opp.upper()}")
+    print(f"  Location: {'HOME' if is_home_val == 1 else 'AWAY'}")
     print("  " + "=" * 48)
-    print(f"  PREDICTION  ->  {player_name.upper()}")
-    print("  " + "=" * 48)
-    print(f"  Stat          : {stat}")
-    print(f"  Predicted     : {predicted_stat:.1f}")
-    print(f"  O/U Line      : {line}")
-    print(f"  Model error   : +/-{mae:.1f} {stat}")
-    print()
+    print(f"  Stat      : {stat}")
+    print(f"  Predicted : {predicted_stat:.1f}")
+    print(f"  O/U Line  : {line}")
+    print(f"  Model MAE : +/-{mae:.1f}")
 
     gap = abs(predicted_stat - line)
-    if gap < mae:
-        print(f"  TOO CLOSE TO CALL  (gap of {gap:.1f} is within model error)")
+    if gap < (mae * 0.4): # Higher confidence threshold
+        print(f"\n  BETTING ADVICE: TOO CLOSE TO CALL")
     elif predicted_stat > line:
-        print(f"  TAKE THE OVER   (+{predicted_stat - line:.1f} above the line)")
+        print(f"\n  BETTING ADVICE: TAKE THE OVER (+{predicted_stat - line:.1f})")
     else:
-        print(f"  TAKE THE UNDER  ({line - predicted_stat:.1f} below the line)")
-
-    # --- Show last 5 predictions vs actual ---
-    print()
-    print("  Last 5 test games (predicted vs actual):")
-    comparison = player_df.iloc[split_index:].copy()
-    comparison["predicted"] = y_pred_test.round(1)
-    comparison["actual"]    = y_test.values
-    comparison["error"]     = (comparison["predicted"] - comparison["actual"]).round(1)
-    cols = ["gameDateTimeEst", "actual", "predicted", "error"]
-    print(comparison[cols].tail(5).to_string(index=False))
-    print()
-
+        print(f"\n  BETTING ADVICE: TAKE THE UNDER ({line - predicted_stat:.1f})")
 
 # ============================================================
-#  Step 3: The main loop
-#  "while True" means: keep asking forever until they type quit
+#  Step 3: User Loop
 # ============================================================
-
-VALID_STATS = {
-    "1": "points",
-    "2": "reboundsTotal",
+STATS_MAP = {
+    "1": "points", 
+    "2": "reboundsTotal", 
     "3": "assists",
     "4": "steals",
     "5": "blocks",
     "6": "threePointersMade"
 }
 
-print("Type 'quit' at any prompt to exit.\n")
-
 while True:
-
-    # --- Ask for player name ---
     print("-" * 55)
-    player_input = input("  Player name (e.g. LeBron James): ").strip()
-
-    if player_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
-
-    # --- Ask for stat ---
-    print()
-    print("  Which stat?")
-    print("    1 -> Points")
-    print("    2 -> Rebounds")
-    print("    3 -> Assists")
-    print("    4 -> Steals")
-    print("    5 -> Blocks")
-    print("    6 -> Three Pointers Made")
-    stat_input = input("  Enter 1, 2, 3, 4, 5, or 6: ").strip()
-
-    if stat_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
-
-    if stat_input not in VALID_STATS:
-        print("  Please enter 1, 2, 3, 4, 5, or 6.\n")
-        continue
-
-    stat = VALID_STATS[stat_input]
-
-    # --- Ask for opponent team ---
-    opponent_input = input("  Opponent team name (e.g. Lakers): ").strip()
-
-    if opponent_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
-
-    # --- Ask for the over/under line ---
-    line_input = input(f"  Over/Under line for {stat} (e.g. 24.5): ").strip()
-
-    if line_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
-
-    # Convert the line to a number — catch typos
+    name = input("Player Name: ").strip()
+    if name.lower() == 'quit': break
+    
+    print("\n1:Pts | 2:Reb | 3:Ast | 4:Stl | 5:Blk | 6:3PM")
+    stat_choice = input("Select Stat: ").strip()
+    if stat_choice not in STATS_MAP: continue
+    
+    opp = input("Opponent (e.g., Lakers): ").strip()
+    loc = input("Is player at HOME? (y/n): ").strip().lower()
+    is_home = 1 if loc == 'y' else 0
+    
+    line_in = input("O/U Line: ").strip()
     try:
-        line = float(line_input)
+        line = float(line_in)
+        predict_player_lasso(name, STATS_MAP[stat_choice], line, opp, is_home)
     except ValueError:
-        print("  That doesn't look like a number. Try something like 24.5\n")
-        continue
-
-    # --- Run the prediction! ---
-    predict_player_lasso(player_input, stat, line, opponent_input) # Call the Lasso version of the function with new opponent param
+        print("Invalid number.")
