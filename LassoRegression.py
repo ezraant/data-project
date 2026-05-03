@@ -4,10 +4,10 @@ from sklearn.metrics import mean_absolute_error
 
 
 # ============================================================
-#  SETTINGS (can be changed)
+#  SETTINGS (feel free to tweak these)
 # ============================================================
 
-FILE_PATH      = "ActivePlayerStatistics_after_2004.csv" # Corrected file path
+FILE_PATH      = "UpdatedPlayerStatistics.csv" # Changed to load the CSV with per-minute stats
 LOOKBACK_GAMES = 20   # how many recent games to average over
 LASSO_ALPHA    = 0.1  # Alpha parameter for Lasso regularization
 
@@ -18,7 +18,7 @@ LASSO_ALPHA    = 0.1  # Alpha parameter for Lasso regularization
 # ============================================================
 
 print("=" * 55)
-print("   🏀  NBA OVER/UNDER PREDICTOR (Lasso Version)")
+print("   🏀  NBA OVER/UNDER PREDICTOR (Lasso Version with Enhanced Features)")
 print("=" * 55)
 print("\nLoading data... (this takes a few seconds)")
 
@@ -58,8 +58,11 @@ def predict_player_lasso(player_name, stat, line):
           f"{player_df['gameDateTimeEst'].max().date()})")
 
     # --- Build rolling average features ---
+    # Enhanced feature_cols to include per-minute stats
     feature_cols = ["points", "reboundsTotal", "assists",
-                    "numMinutes", "fieldGoalsAttempted"]
+                    "numMinutes", "fieldGoalsAttempted",
+                    "pointsPerMinute", "stealsPerMinute", "reboundsPerMinute",
+                    "assistsPerMinute", "blocksPerMinute", "threesPerMinute"]
 
     for col in feature_cols:
         player_df[f"avg_{col}"] = (
@@ -70,6 +73,11 @@ def predict_player_lasso(player_name, stat, line):
         )
 
     player_df["is_home"] = player_df["home"]
+
+    # One-hot encode opponentteamName to factor in opponent name
+    player_df = pd.get_dummies(player_df, columns=['opponentteamName'], prefix='opp', drop_first=True)
+
+
     player_df = player_df.dropna().reset_index(drop=True)
 
     if len(player_df) < 10:
@@ -77,7 +85,11 @@ def predict_player_lasso(player_name, stat, line):
         return
 
     # --- Split into train / test (80% / 20%) ---
+    # Dynamically build input_features to include new rolling avg features and one-hot encoded opponent names
     input_features = [f"avg_{col}" for col in feature_cols] + ["is_home"]
+    opponent_cols = [col for col in player_df.columns if col.startswith('opp_')]
+    input_features.extend(opponent_cols)
+
     X = player_df[input_features]
     y = player_df[stat]
 
@@ -137,6 +149,9 @@ VALID_STATS = {
     "1": "points",
     "2": "reboundsTotal",
     "3": "assists",
+    "4": "steals",
+    "5": "blocks",
+    "6": "threePointersMade"
 }
 
 print("Type 'quit' at any prompt to exit.\n")
@@ -157,14 +172,17 @@ while True:
     print("    1 -> Points")
     print("    2 -> Rebounds")
     print("    3 -> Assists")
-    stat_input = input("  Enter 1, 2, or 3: ").strip()
+    print("    4 -> Steals")
+    print("    5 -> Blocks")
+    print("    6 -> Three Pointers Made")
+    stat_input = input("  Enter 1, 2, 3, 4, 5, or 6: ").strip()
 
     if stat_input.lower() == "quit":
         print("\nGoodbye!\n")
         break
 
     if stat_input not in VALID_STATS:
-        print("  Please enter 1, 2, or 3.\n")
+        print("  Please enter 1, 2, 3, 4, 5, or 6.\n")
         continue
 
     stat = VALID_STATS[stat_input]
