@@ -26,6 +26,10 @@ df_lasso = pd.read_csv(FILE_PATH)
 df_lasso["gameDateTimeEst"] = pd.to_datetime(df_lasso["gameDateTimeEst"])
 df_lasso["fullName"] = df_lasso["firstName"] + " " + df_lasso["lastName"]
 
+# Apply one-hot encoding for all possible opponent teams across the entire dataset
+# This ensures consistency when a specific player might not have played against all teams
+df_lasso = pd.get_dummies(df_lasso, columns=['opponentteamName'], prefix='opp', drop_first=True)
+
 print(f"Ready! Loaded {len(df_lasso):,} game rows.\n")
 
 
@@ -36,7 +40,7 @@ print(f"Ready! Loaded {len(df_lasso):,} game rows.\n")
 #  then you can call it over and over with different inputs.
 # ============================================================
 
-def predict_player_lasso(player_name, stat, line):
+def predict_player_lasso(player_name, stat, line, next_opponent_team):
     """
     Given a player name, a stat, and an over/under line,
     trains a Lasso model on their history and prints a prediction.
@@ -74,12 +78,7 @@ def predict_player_lasso(player_name, stat, line):
 
     player_df["is_home"] = player_df["home"]
 
-    # One-hot encode opponentteamName to factor in opponent name
-    # Create the dummies as a separate dataframe
-    dummies = pd.get_dummies(player_df['opponentteamName'], prefix='opp', drop_first=True)
-
-    # Join the dummies back to the original dataframe (keeping the original column)
-    player_df = pd.concat([player_df, dummies], axis=1)
+    # player_df no longer needs pd.get_dummies here as it's applied globally
 
     player_df = player_df.dropna().reset_index(drop=True)
 
@@ -90,10 +89,12 @@ def predict_player_lasso(player_name, stat, line):
     # --- Split into train / test (80% / 20%) ---
     # Dynamically build input_features to include new rolling avg features and one-hot encoded opponent names
     input_features = [f"avg_{col}" for col in feature_cols] + ["is_home"]
-    opponent_cols = [col for col in player_df.columns if col.startswith('opp_')]
+    # Get all opponent columns from the global df_lasso, as they were created there
+    opponent_cols = [col for col in df_lasso.columns if col.startswith('opp_')]
     input_features.extend(opponent_cols)
 
-    X = player_df[input_features]
+    # Ensure X has all the columns from input_features, filling with 0 for missing opp_ columns
+    X = player_df[input_features].fillna(0)
     y = player_df[stat]
 
     split_index = int(len(X) * 0.80)
@@ -108,8 +109,28 @@ def predict_player_lasso(player_name, stat, line):
     y_pred_test = model.predict(X_test)
     mae = mean_absolute_error(y_test, y_pred_test)
 
-    # --- Predict next game ---
-    latest_input   = X.iloc[[-1]]
+    # --- Predict next game with specified opponent ---
+    # Get the last actual game's calculated averages and home status
+    # This assumes the 'next game' will have similar rolling averages to the player's last game
+    latest_historical_features = player_df.iloc[[-1]][[f"avg_{col}" for col in feature_cols] + ["is_home"]].copy()
+
+    # Create a new DataFrame for the next game's prediction
+    # Initialize all features to 0 to properly handle one-hot encoding
+    latest_input = pd.DataFrame(0, index=[0], columns=input_features)
+
+    # Populate the rolling average features and is_home from the last historical game
+    for col in [f"avg_{c}" for c in feature_cols] + ["is_home"]:
+        latest_input[col] = latest_historical_features[col].values[0]
+
+    # Set the one-hot encoded column for the specified next opponent to 1
+    opponent_col_name = f'opp_{next_opponent_team}'
+    if opponent_col_name in latest_input.columns:
+        latest_input[opponent_col_name] = 1
+    else:
+        print(f"  Warning: Opponent '{next_opponent_team}' not found in historical data. This opponent's specific impact will not be modeled.")
+        # If the opponent is not found, its dummy variable remains 0, which is effectively
+        # treating it as the 'dropped' category in drop_first=True, or a new unseen team.
+
     predicted_stat = model.predict(latest_input)[0]
 
     # --- Print results ---
@@ -138,7 +159,7 @@ def predict_player_lasso(player_name, stat, line):
     comparison["predicted"] = y_pred_test.round(1)
     comparison["actual"]    = y_test.values
     comparison["error"]     = (comparison["predicted"] - comparison["actual"]).round(1)
-    cols = ["gameDateTimeEst", "opponentteamName", "actual", "predicted", "error"]
+    cols = ["gameDateTimeEst", "actual", "predicted", "error"]
     print(comparison[cols].tail(5).to_string(index=False))
     print()
 
@@ -190,6 +211,13 @@ while True:
 
     stat = VALID_STATS[stat_input]
 
+    # --- Ask for opponent team ---
+    opponent_input = input("  Opponent team name (e.g. Lakers): ").strip()
+
+    if opponent_input.lower() == "quit":
+        print("\nGoodbye!\n")
+        break
+
     # --- Ask for the over/under line ---
     line_input = input(f"  Over/Under line for {stat} (e.g. 24.5): ").strip()
 
@@ -205,4 +233,4 @@ while True:
         continue
 
     # --- Run the prediction! ---
-    predict_player_lasso(player_input, stat, line) # Call the Lasso version of the function
+    predict_player_lasso(player_input, stat, line, opponent_input) # Call the Lasso version of the function with new opponent param
