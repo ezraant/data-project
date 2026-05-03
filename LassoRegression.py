@@ -75,8 +75,11 @@ def predict_player_lasso(player_name, stat, line):
     player_df["is_home"] = player_df["home"]
 
     # One-hot encode opponentteamName to factor in opponent name
-    player_df = pd.get_dummies(player_df, columns=['opponentteamName'], prefix='opp', drop_first=True)
+    # Create the dummies as a separate dataframe
+    dummies = pd.get_dummies(player_df['opponentteamName'], prefix='opp', drop_first=True)
 
+    # Join the dummies back to the original dataframe (keeping the original column)
+    player_df = pd.concat([player_df, dummies], axis=1)
 
     player_df = player_df.dropna().reset_index(drop=True)
 
