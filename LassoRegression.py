@@ -5,7 +5,7 @@ from sklearn.metrics import mean_absolute_error
 # ============================================================
 #  SETTINGS
 # ============================================================
-FILE_PATH      = "UpdatedPlayerStatistics.csv"
+FILE_PATH      = "UpdatedPlayerStatistics (1).csv"
 WINDOW_LONG    = 20    
 WINDOW_SHORT   = 5     
 LASSO_ALPHA    = 0.01  # Lowered for more sensitivity
@@ -23,7 +23,7 @@ df_lasso["gameDateTimeEst"] = pd.to_datetime(df_lasso["gameDateTimeEst"])
 df_lasso["fullName"] = df_lasso["firstName"] + " " + df_lasso["lastName"]
 
 # Global One-Hot Encoding for opponents
-df_lasso = pd.get_dummies(df_lasso, columns=['opponentteamName'], prefix='opp', drop_first=True)
+df_lasso = pd.get_dummies(df_lasso, columns=['opponentteamName'], prefix='opp', drop_first=False)
 
 print(f"Ready! Data loaded.\n")
 
