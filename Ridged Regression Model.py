@@ -1,0 +1,308 @@
+# ============================================================
+#  NBA Player Over/Under Predictor
+#  Method: Optimized Ridge Regression
+#  Now includes per-minute stats as features!
+# ============================================================
+
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import Ridge
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import mean_absolute_error
+
+
+# ============================================================
+#  SETTINGS
+# ============================================================
+
+FILE_PATH      = "UpdatedPlayerStatistics.txt"
+RECENT_SEASONS = 4
+RIDGE_ALPHA    = 50
+WEIGHT_POWER   = 3.0
+
+
+# ============================================================
+#  Step 1: Load data once
+# ============================================================
+
+print("=" * 55)
+print("   🏀  NBA OVER/UNDER PREDICTOR")
+print("   Method: Optimized Ridge Regression")
+print("=" * 55)
+print("\nLoading data... (this takes a few seconds)")
+
+df = pd.read_csv(FILE_PATH)
+df["gameDateTimeEst"] = pd.to_datetime(df["gameDateTimeEst"])
+df["fullName"] = df["firstName"] + " " + df["lastName"]
+
+all_teams = sorted(df["opponentteamName"].dropna().unique().tolist())
+
+print(f"Ready! Loaded {len(df):,} game rows.\n")
+
+
+# ============================================================
+#  Step 2: Build features
+# ============================================================
+
+def build_features(player_df, stat):
+
+    # Raw counting stats (totals per game)
+    counting_cols = [
+        "points", "reboundsTotal", "assists",
+        "numMinutes", "fieldGoalsAttempted",
+        "steals", "blocks", "threePointersMade"
+    ]
+
+    # Per-minute stats (efficiency regardless of playing time)
+    # These help a lot because a player can score 10 pts in 15 mins
+    # or 10 pts in 35 mins — very different performances
+    per_minute_cols = [
+        "pointsPerMinute", "stealsPerMinute", "reboundsPerMinute",
+        "assistsPerMinute", "blocksPerMinute", "threesPerMinute"
+    ]
+
+    # All feature columns combined
+    all_feature_cols = counting_cols + per_minute_cols
+
+    # --- Rolling averages at 3 window sizes ---
+    # avg3  = last 3 games  (very hot/cold right now)
+    # avg5  = last 5 games  (short term form)
+    # avg10 = last 10 games (medium term form)
+    for w in [3, 5, 10]:
+        for col in all_feature_cols:
+            player_df[f"avg{w}_{col}"] = (
+                player_df[col]
+                .shift(1)
+                .rolling(w, min_periods=2)
+                .mean()
+            )
+
+    # --- Trend: is the player getting hotter or colder? ---
+    # Positive = on a hot streak, Negative = cooling off
+    for col in all_feature_cols:
+        player_df[f"trend_{col}"] = (
+            player_df[f"avg3_{col}"] - player_df[f"avg10_{col}"]
+        )
+
+    # --- Lag features: actual raw scores from last 3 games ---
+    # More direct than averages — captures momentum
+    for lag in [1, 2, 3]:
+        player_df[f"lag{lag}_{stat}"] = player_df[stat].shift(lag)
+
+    # --- Per-minute trend for the stat being predicted ---
+    # e.g. if predicting points, also track pointsPerMinute trend
+    stat_per_min = stat + "PerMinute"
+    if stat_per_min in per_minute_cols:
+        for lag in [1, 2, 3]:
+            player_df[f"lag{lag}_{stat_per_min}"] = player_df[stat_per_min].shift(lag)
+
+    # --- Home/away flag ---
+    player_df["is_home"] = player_df["home"]
+
+    player_df = player_df.dropna().reset_index(drop=True)
+
+    return player_df, all_feature_cols
+
+
+# ============================================================
+#  Step 3: Prediction function
+# ============================================================
+
+def predict_player(player_name, stat, line, opponent, is_home):
+
+    player_df = df[df["fullName"] == player_name].copy()
+
+    if len(player_df) == 0:
+        print(f"\n  Could not find '{player_name}' in the data.")
+        print("  Double-check spelling (e.g. 'LeBron James', 'Stephen Curry')\n")
+        return
+
+    player_df = player_df.sort_values("gameDateTimeEst", ascending=True).reset_index(drop=True)
+    cutoff    = player_df["gameDateTimeEst"].max() - pd.DateOffset(years=RECENT_SEASONS)
+    player_df = player_df[player_df["gameDateTimeEst"] >= cutoff].reset_index(drop=True)
+
+    print(f"\n  Found {len(player_df)} games for {player_name} "
+          f"(last {RECENT_SEASONS} seasons: "
+          f"{player_df['gameDateTimeEst'].min().date()} to "
+          f"{player_df['gameDateTimeEst'].max().date()})")
+
+    player_df, all_feature_cols = build_features(player_df, stat)
+
+    if len(player_df) < 20:
+        print("  Not enough game history to make a prediction.\n")
+        return
+
+    # --- Input features for the model ---
+    stat_per_min = stat + "PerMinute"
+    per_min_lags = (
+        [f"lag{lag}_{stat_per_min}" for lag in [1, 2, 3]]
+        if stat_per_min in df.columns else []
+    )
+
+    input_features = (
+        [f"avg{w}_{col}" for w in [3, 5, 10] for col in all_feature_cols] +
+        [f"trend_{col}"  for col in all_feature_cols] +
+        [f"lag{lag}_{stat}" for lag in [1, 2, 3]] +
+        per_min_lags +
+        ["is_home"]
+    )
+
+    # Only keep columns that actually exist after dropna
+    input_features = [c for c in input_features if c in player_df.columns]
+
+    X = player_df[input_features]
+    y = player_df[stat]
+
+    split   = int(len(X) * 0.8)
+    X_train = X.iloc[:split]
+    X_test  = X.iloc[split:]
+    y_train = y.iloc[:split]
+    y_test  = y.iloc[split:]
+
+    # Recent games weighted more heavily
+    weights = np.linspace(1.0, WEIGHT_POWER, len(X_train))
+
+    model = Pipeline([
+        ("scaler", StandardScaler()),
+        ("reg",    Ridge(alpha=RIDGE_ALPHA))
+    ])
+    model.fit(X_train, y_train, reg__sample_weight=weights)
+
+    y_pred_test    = model.predict(X_test)
+    mae            = mean_absolute_error(y_test, y_pred_test)
+
+    next_game          = X.iloc[[-1]].copy()
+    next_game["is_home"] = int(is_home)
+    predicted_stat     = model.predict(next_game)[0]
+
+    # --- Context stats ---
+    all_player    = df[df["fullName"] == player_name]
+    games_vs_opp  = all_player[all_player["opponentteamName"] == opponent]
+    games_at_home = player_df[player_df["home"] == 1]
+    games_away    = player_df[player_df["home"] == 0]
+
+    avg_vs_opp    = games_vs_opp[stat].mean()  if len(games_vs_opp)  > 0 else None
+    avg_at_home   = games_at_home[stat].mean() if len(games_at_home) > 0 else None
+    avg_away      = games_away[stat].mean()    if len(games_away)    > 0 else None
+    last3_avg     = player_df[stat].iloc[-3:].mean()
+
+    # Per-minute context (shows efficiency)
+    if stat_per_min in player_df.columns:
+        last3_per_min = player_df[stat_per_min].iloc[-3:].mean()
+        overall_per_min = player_df[stat_per_min].mean()
+    else:
+        last3_per_min = None
+        overall_per_min = None
+
+    # --- Print results ---
+    print()
+    print("  " + "=" * 48)
+    print(f"  PREDICTION  ->  {player_name.upper()}")
+    print("  " + "=" * 48)
+    print(f"  Stat                : {stat}")
+    print(f"  Opponent            : {opponent}  ({'Home' if is_home else 'Away'})")
+    print()
+    print(f"  Last 3 game avg     : {last3_avg:.1f}  (recent streak)")
+    if last3_per_min is not None:
+        print(f"  Last 3 per-min avg  : {last3_per_min:.3f}  (efficiency trend)")
+    if avg_vs_opp is not None:
+        print(f"  Career avg vs {opponent:<10}: {avg_vs_opp:.1f}  ({len(games_vs_opp)} games)")
+    else:
+        print(f"  Career avg vs {opponent:<10}: No history")
+    if avg_at_home is not None:
+        print(f"  Avg at HOME (recent): {avg_at_home:.1f}")
+    if avg_away is not None:
+        print(f"  Avg AWAY    (recent): {avg_away:.1f}")
+    if overall_per_min is not None:
+        print(f"  Season per-min avg  : {overall_per_min:.3f}")
+    print()
+    print(f"  Model predicted     : {predicted_stat:.1f}")
+    print(f"  O/U line            : {line}")
+    print(f"  Model error         : +/-{mae:.1f} {stat}")
+    print()
+
+    gap = abs(predicted_stat - line)
+    if gap < mae:
+        print(f"  TOO CLOSE TO CALL  (gap of {gap:.1f} is within model error)")
+    elif predicted_stat > line:
+        print(f"  TAKE THE OVER   (+{predicted_stat - line:.1f} above the line)")
+    else:
+        print(f"  TAKE THE UNDER  ({line - predicted_stat:.1f} below the line)")
+
+    print()
+    print("  Last 5 test games (predicted vs actual):")
+    comparison = player_df.iloc[split:].copy()
+    comparison["predicted"] = y_pred_test.round(1)
+    comparison["actual"]    = y_test.values
+    comparison["error"]     = (comparison["predicted"] - comparison["actual"]).round(1)
+    cols = ["gameDateTimeEst", "opponentteamName", "home", "actual", "predicted", "error"]
+    print(comparison[cols].tail(5).to_string(index=False))
+    print()
+
+
+# ============================================================
+#  Step 4: Main loop
+# ============================================================
+
+VALID_STATS = {
+    "1": "points",
+    "2": "reboundsTotal",
+    "3": "assists",
+}
+
+print("Type 'quit' at any prompt to exit.\n")
+
+while True:
+
+    print("-" * 55)
+
+    player_input = input("  Player name (e.g. LeBron James): ").strip()
+    if player_input.lower() == "quit":
+        print("\nGoodbye!\n")
+        break
+
+    print()
+    print("  Which stat?")
+    print("    1 -> Points")
+    print("    2 -> Rebounds")
+    print("    3 -> Assists")
+    stat_input = input("  Enter 1, 2, or 3: ").strip()
+    if stat_input.lower() == "quit":
+        print("\nGoodbye!\n")
+        break
+    if stat_input not in VALID_STATS:
+        print("  Please enter 1, 2, or 3.\n")
+        continue
+    stat = VALID_STATS[stat_input]
+
+    line_input = input(f"  Over/Under line for {stat} (e.g. 24.5): ").strip()
+    if line_input.lower() == "quit":
+        print("\nGoodbye!\n")
+        break
+    try:
+        line = float(line_input)
+    except ValueError:
+        print("  That doesn't look like a number. Try something like 24.5\n")
+        continue
+
+    print(f"\n  Available teams: {', '.join(all_teams)}")
+    opponent_input = input("  Opponent team name (e.g. Celtics): ").strip()
+    if opponent_input.lower() == "quit":
+        print("\nGoodbye!\n")
+        break
+    if opponent_input not in all_teams:
+        print(f"  Could not find '{opponent_input}'. Check the team list above.\n")
+        continue
+
+    location_input = input("  Is it a Home or Away game? (h/a): ").strip().lower()
+    if location_input == "quit":
+        print("\nGoodbye!\n")
+        break
+    if location_input not in ["h", "a"]:
+        print("  Please type h for home or a for away.\n")
+        continue
+    is_home = location_input == "h"
+
+    predict_player(player_input, stat, line, opponent_input, is_home)
+
