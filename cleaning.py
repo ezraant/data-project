@@ -1,42 +1,41 @@
 import pandas as pd
 
-# Load the CSV into a DataFrame
-df = pd.read_csv('PlayerStatistics (1).csv', low_memory=False)
 
-# Convert 'gameDateTimeEst' to datetime objects
+#Load CSV into a DataFrame
+df = pd.read_csv('PlayerStatistics.csv', low_memory=False)
+
+
+#convert 'gameDateTimeEst' to datetime objects
 df['gameDateTimeEst'] = pd.to_datetime(df['gameDateTimeEst'])
 
-# Filter out data from before september 2003
+
+#Filter out data from before september 2003
 df_after_2004 = df[df['gameDateTimeEst'] >= '2003-09-01']
 
-#only include the columns we need: personId, firstName, lastName, gameDateTimeEst, playerteamName, opponentteamName, gameType, home, numMinutes, points, steals, reboundsTotal, assists, blocks, fieldGoalsAttempted, threePointersMade
-columns_to_keep = ['personId', 'firstName', 'lastName', 'gameDateTimeEst', 'playerteamName', 'opponentteamName', 'gameType', 'home', 'numMinutes', 'points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'fieldGoalsAttempted', 'threePointersMade']
+
+#only include the columns we need
+columns_to_keep = ['personId', 'firstName', 'lastName', 'gameDateTimeEst', 'playerteamName', 'opponentteamName', 'gameType', 'home', 
+                   'numMinutes', 'points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'fieldGoalsAttempted', 'threePointersMade']
 df_filtered = df_after_2004[columns_to_keep]
+
 
 #removing preseason games
 df_filtered = df_filtered[df_filtered['gameType'] != 'Preseason']
-# Save the filtered DataFrame to a new CSV file
-#df_filtered.to_csv('PlayerStatistics_after_2004.csv', index=False)
 
 
 #removing rows with 0 minutes played
 df_filtered['numMinutes'] = pd.to_numeric(df_filtered['numMinutes'], errors='coerce')
 df_filtered = df_filtered[df_filtered['numMinutes'] > 0]
 
-# pd.set_option('display.max_columns', None)
-# pd.set_option('display.width', 1000) # no new lines 
-# lebron_recent = df_filtered[(df_filtered['firstName'] == 'LeBron') & (df_filtered['lastName'] == 'James')]
-# print(lebron_recent.tail())
 
-# 1. Make a set of personId for anyone who has played since September 2023
+#Make a set of personId for anyone who has played since September 2023 so we can remove anyone not in the set
 players_since_sept_2023_df = df_filtered[df_filtered['gameDateTimeEst'] >= '2023-09-01']
 person_ids_since_sept_2023 = set(players_since_sept_2023_df['personId'].unique())
 
-# 2. Remove any rows prior to that date where the personId value is not in that set
-# Create a condition for rows before September 2023
+#make a condition for rows before September 2023
 before_sept_2023_condition = df_filtered['gameDateTimeEst'] < '2023-09-01'
 
-# Create a condition for personId not in the set
+#make a condition for personId not in the set
 not_in_set_condition = ~df_filtered['personId'].isin(person_ids_since_sept_2023)
 
 # Combine the conditions to identify rows to be removed
@@ -45,6 +44,7 @@ rows_to_remove_condition = before_sept_2023_condition & not_in_set_condition
 # Filter the DataFrame, keeping only the rows that do NOT meet the removal condition
 df_final_filtered = df_filtered[~rows_to_remove_condition].copy()
 
+'''
 print(f"Original df_filtered shape: {df_filtered.shape}")
 print(f"Players who played since Sept 2023: {len(person_ids_since_sept_2023)}")
 print(f"Final filtered DataFrame shape: {df_final_filtered.shape}")
@@ -52,15 +52,15 @@ print(f"Final filtered DataFrame shape: {df_final_filtered.shape}")
 # Display the first few rows of the final filtered DataFrame
 print("\nLast 5 rows of df_final_filtered:")
 print(df_final_filtered.tail())
+'''
 
-#df_final_filtered.to_csv('ActivePlayerStatistics_after_2004.csv', index=False)
-
-# List of columns to convert to numbers
+#list of columns to convert to numbers
 stats_cols = ['points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'threePointersMade']
-
 for col in stats_cols:  
     df_final_filtered[col] = pd.to_numeric(df_final_filtered[col], errors='coerce').fillna(0)
 
+
+#making statPerMinute columns
 df_final_filtered['pointsPerMinute'] = (df_final_filtered['points'] / df_final_filtered['numMinutes']).round(5)
 df_final_filtered['stealsPerMinute'] = (df_final_filtered['steals'] / df_final_filtered['numMinutes']).round(5)
 df_final_filtered['reboundsPerMinute'] = (df_final_filtered['reboundsTotal'] / df_final_filtered['numMinutes']).round(5)
@@ -68,5 +68,4 @@ df_final_filtered['assistsPerMinute'] = (df_final_filtered['assists'] / df_final
 df_final_filtered['blocksPerMinute'] = (df_final_filtered['blocks'] / df_final_filtered['numMinutes']).round(5)
 df_final_filtered['threesPerMinute'] = (df_final_filtered['threePointersMade'] / df_final_filtered['numMinutes']).round(5)
 
-print("New per-minute columns added to df_final_filtered.")
-df_final_filtered.to_csv('UpdatedPlayerStatistics (1).csv', index=False)
+df_final_filtered.to_csv('UpdatedPlayerStatistics.csv', index=False)
