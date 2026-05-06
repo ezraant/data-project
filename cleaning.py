@@ -28,8 +28,6 @@ df_filtered = df_filtered[df_filtered['numMinutes'] > 0]
 # lebron_recent = df_filtered[(df_filtered['firstName'] == 'LeBron') & (df_filtered['lastName'] == 'James')]
 # print(lebron_recent.tail())
 
-# Assuming df_filtered is already loaded and processed as in the previous step
-
 # 1. Make a set of personId for anyone who has played since September 2023
 players_since_sept_2023_df = df_filtered[df_filtered['gameDateTimeEst'] >= '2023-09-01']
 person_ids_since_sept_2023 = set(players_since_sept_2023_df['personId'].unique())
