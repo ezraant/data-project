@@ -15,7 +15,7 @@ from sklearn.metrics import mean_absolute_error
 #  SETTINGS
 # ============================================================
 
-FILE_PATH      = "UpdatedPlayerStatistics (1).txt"
+FILE_PATH      = "UpdatedPlayerStatistics (1).csv"
 RECENT_SEASONS = 4
 RIDGE_ALPHA    = 50
 WEIGHT_POWER   = 3.0
@@ -35,6 +35,7 @@ print("\nLoading data... (this takes a few seconds)")
 df = pd.read_csv(FILE_PATH)
 df["gameDateTimeEst"] = pd.to_datetime(df["gameDateTimeEst"])
 df["fullName"] = df["firstName"] + " " + df["lastName"]
+valid_players = df["fullName"].unique().tolist()
 
 all_teams = sorted(df["opponentteamName"].dropna().unique().tolist())
 
@@ -222,6 +223,66 @@ def predict_player(player_name, selected_stats, lines, opponent, is_home):
 
     print()
 
+# stat-lookup
+# if you want to use this not for betting but to look up stats from the database..
+# or if you want to do your own betting research and look up stats yourself..
+def lookup_stats(player_name):
+    player_df = df[df["fullName"] == player_name].copy()
+    if player_df.empty:
+        print(f"\n  Could not find '{player_name}'.")
+        return
+
+    # --- ADD THIS LOGIC HERE ---
+    # Create a 'Season' column: If month >= 10, season is year + 1. Otherwise, it's just the year.
+    player_df['Season'] = player_df['gameDateTimeEst'].apply(
+        lambda x: x.year + 1 if x.month >= 10 else x.year
+    )
+
+    print(f"\n--- STAT LOOKUP: {player_name.upper()} ---")
+    print("1: Season Averages (e.g., 2026)")
+    print("2: Averages vs Specific Opponent")
+    choice = input("Choice: ").strip()
+
+    stats_cols = ["numMinutes", "points", "reboundsTotal", "assists", "steals", "blocks", "threePointersMade"]
+
+    if choice == "1":
+        year_in = input("Enter Season Year (e.g., 2026 for 25-26 season): ").strip().lower()
+        
+        if year_in == 'current':
+            # Use the most recent game's calculated season
+            target_season = player_df['Season'].max()
+        else:
+            try:
+                target_season = int(year_in)
+            except:
+                print("Invalid year format."); return
+        
+        # Filter by the new 'Season' column instead of the calendar year
+        filtered = player_df[player_df["Season"] == target_season]
+        label = f"{target_season-1}-{str(target_season)[2:]} Season"
+    
+    elif choice == "2":
+        opp = input("Enter Opponent Name: ").strip()
+        scope = input("1: This Season | 2: Career vs Opponent: ").strip()
+        
+        if scope == "1":
+            this_season = player_df['Season'].max()
+            filtered = player_df[(player_df["opponentteamName"] == opp) & 
+                                 (player_df["Season"] == this_season)]
+            label = f"vs {opp} ({this_season-1}-{str(this_season)[2:]} Season)"
+        else:
+            filtered = player_df[player_df["opponentteamName"] == opp]
+            label = f"vs {opp} (Career)"
+    else: return
+
+    if filtered.empty:
+        print(f"\n  No games found for the {label}.")
+    else:
+        print(f"\n  {label} ({len(filtered)} games)")
+        avgs = filtered[stats_cols].mean()
+        for s, v in avgs.items():
+            display_name = "Minutes Per Game" if s == "numMinutes" else s
+            print(f"  {s:<18}: {v:.1f}")
 
 # ============================================================
 #  Step 5: Main loop
@@ -232,78 +293,93 @@ print("Type 'quit' at any prompt to exit.\n")
 while True:
 
     print("=" * 55)
+    print("  MAIN MENU")
+    print("  1-> Betting Predictions (Ridge Model)")
+    print("  2-> Stat Lookup (Averages/History)")
+    print("=" * 55)
 
-    # --- Player ---
-    player_input = input("  Player name (e.g. LeBron James): ").strip()
-    if player_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
+    mode = input("Select Mode: ").strip().lower()
+    if mode in ["quit", "q", "exit"]: break
 
-    # --- Opponent ---
-    print(f"\n  Available teams: {', '.join(all_teams)}")
-    opponent_input = input("  Opponent team name (e.g. Celtics): ").strip()
-    if opponent_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
-    if opponent_input not in all_teams:
-        print(f"\n  Could not find '{opponent_input}'. Check the team list above.\n")
-        continue
-
-    # --- Home or away ---
-    location_input = input("  Home or Away? (h/a): ").strip().lower()
-    if location_input == "quit":
-        print("\nGoodbye!\n")
-        break
-    if location_input not in ["h", "a"]:
-        print("  Please type h for home or a for away.\n")
-        continue
-    is_home = location_input == "h"
-
-    # --- Pick which stats to predict ---
-    print()
-    print("  Which stats do you want predictions for?")
-    for key, (stat, label) in STATS.items():
-        print(f"    {key} -> {label}")
-    print("  Enter numbers separated by commas (e.g. 1,2,3 or 1,4,5,6)")
-    stat_input = input("  Your choice: ").strip()
-
-    if stat_input.lower() == "quit":
-        print("\nGoodbye!\n")
-        break
-
-    # Parse which stats the user picked
-    chosen_keys = [s.strip() for s in stat_input.split(",")]
-    selected_stats = []
-    valid = True
-    for key in chosen_keys:
-        if key not in STATS:
-            print(f"  '{key}' is not a valid option. Please pick from 1-6.\n")
-            valid = False
-            break
-        selected_stats.append(STATS[key])  # (stat_col, label)
-
-    if not valid:
-        continue
-
-    # --- Get the O/U line for each selected stat ---
-    print()
-    lines = {}
-    for stat, label in selected_stats:
-        line_input = input(f"  O/U line for {label} (e.g. 2.5): ").strip()
-        if line_input.lower() == "quit":
+    if mode == "1":
+        # --- Player ---
+        player_input = input("  Player name (e.g. LeBron James): ").strip()
+        if player_input.lower() == "quit":
             print("\nGoodbye!\n")
-            valid = False
             break
-        try:
-            lines[stat] = float(line_input)
-        except ValueError:
-            print(f"  That doesn't look like a number. Try again.\n")
-            valid = False
+        if player_input not in valid_players:
+            print(f"\n   ⚠️ Error: '{player_input}' not found in database.")
+            print("   Check spelling and capitalization (e.g., 'Jalen Brunson').")
+            continue
+
+        # --- Opponent ---
+        print(f"\n  Available teams: {', '.join(all_teams)}")
+        opponent_input = input("  Opponent team name (e.g. Celtics): ").strip()
+        if opponent_input.lower() == "quit":
+            print("\nGoodbye!\n")
+            break
+        if opponent_input not in all_teams:
+            print(f"\n  Could not find '{opponent_input}'. Check the team list above.\n")
+            continue
+
+        # --- Home or away ---
+        location_input = input("  Home or Away? (h/a): ").strip().lower()
+        if location_input == "quit":
+            print("\nGoodbye!\n")
+            break
+        if location_input not in ["h", "a"]:
+            print("  Please type h for home or a for away.\n")
+            continue
+        is_home = location_input == "h"
+
+        # --- Pick which stats to predict ---
+        print()
+        print("  Which stats do you want predictions for?")
+        for key, (stat, label) in STATS.items():
+            print(f"    {key} -> {label}")
+        print("  Enter numbers separated by commas (e.g. 1,2,3 or 1,4,5,6)")
+        stat_input = input("  Your choice: ").strip()
+
+        if stat_input.lower() == "quit":
+            print("\nGoodbye!\n")
             break
 
-    if not valid:
-        break
+        # Parse which stats the user picked
+        chosen_keys = [s.strip() for s in stat_input.split(",")]
+        selected_stats = []
+        valid = True
+        for key in chosen_keys:
+            if key not in STATS:
+                print(f"  '{key}' is not a valid option. Please pick from 1-6.\n")
+                valid = False
+                break
+            selected_stats.append(STATS[key])  # (stat_col, label)
 
-    # --- Run predictions ---
-    predict_player(player_input, selected_stats, lines, opponent_input, is_home)
+        if not valid:
+            continue
 
+        # --- Get the O/U line for each selected stat ---
+        print()
+        lines = {}
+        for stat, label in selected_stats:
+            line_input = input(f"  O/U line for {label} (e.g. 2.5): ").strip()
+            if line_input.lower() == "quit":
+                print("\nGoodbye!\n")
+                valid = False
+                break
+            try:
+                lines[stat] = float(line_input)
+            except ValueError:
+                print(f"  That doesn't look like a number. Try again.\n")
+                valid = False
+                break
+
+        if not valid:
+            break
+
+        # --- Run predictions ---
+        predict_player(player_input, selected_stats, lines, opponent_input, is_home)
+    elif mode == "2":
+        name = input("\nPlayer Name: ").strip()
+        if name.lower() in ["quit", "q"]: break
+        lookup_stats(name)

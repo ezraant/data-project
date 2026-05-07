@@ -21,6 +21,7 @@ df_filtered = df_after_2004[columns_to_keep]
 
 #removing preseason games
 df_filtered = df_filtered[df_filtered['gameType'] != 'Preseason']
+df_filtered = df_filtered[df_filtered['gameType'] != 'All-Star Game']
 
 
 #removing rows with 0 minutes played
