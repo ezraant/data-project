@@ -3,24 +3,21 @@ from sklearn.neural_network import MLPRegressor # Import MLPRegressor
 from sklearn.metrics import mean_absolute_error
 
 
-# ============================================================
-#  SETTINGS (feel free to tweak these)
-# ============================================================
+# SETTINGS
 
-FILE_PATH              = "UpdatedPlayerStatistics.csv"
+FILE_PATH              = "UpdatedPlayerStatistics (1).csv"
 LOOKBACK_GAMES         = 20   # how many recent games to average over
 MLP_HIDDEN_LAYER_SIZES = (100, 50) # Two hidden layers with 100 and 50 neurons
 MLP_MAX_ITER           = 500  # Number of epochs
 MLP_RANDOM_STATE       = 42   # for reproducibility
 
 
-# ============================================================
-#  Step 1: Load the data ONCE at the start
-#  (We only do this once so it's fast when you look up players)
-# ============================================================
+
+# STEP 1: LOAD THE DATA
+#this runs once at the beginning so it's fast to look up players
 
 print("=" * 55)
-print("   🏀  NBA OVER/UNDER PREDICTOR (MLP Version)")
+print("   NBA OVER/UNDER PREDICTOR (MLP Version)")
 print("=" * 55)
 print("\nLoading data... (this takes a few seconds)")
 
@@ -28,23 +25,19 @@ df_mlp = pd.read_csv(FILE_PATH)
 df_mlp["gameDateTimeEst"] = pd.to_datetime(df_mlp["gameDateTimeEst"])
 df_mlp["fullName"] = df_mlp["firstName"] + " " + df_mlp["lastName"]
 
-# Apply one-hot encoding for all possible opponent teams across the entire dataset
+#one-hot encoding for all possible opponent teams across the entire dataset
 df_mlp = pd.get_dummies(df_mlp, columns=['opponentteamName'], prefix='opp', drop_first=True)
 
 print(f"Ready! Loaded {len(df_mlp):,} game rows.\n")
 
 
-# ============================================================
-#  Step 2: Define a function that runs the MLP model
-# ============================================================
+
+#STEP 2: DEFINE FUNCTION THAT RUNS MLP MODEL
 
 def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game):
-    """
-    Given a player name, a stat, and an over/under line,
-    trains an MLP model on their history and prints a prediction.
-    """
+    #trains an MLP model on the player's history and prints a prediction
 
-    # --- Filter to just this player ---
+    # filter to just this player
     player_df = df_mlp[df_mlp["fullName"] == player_name].copy()
 
     if len(player_df) == 0:
@@ -52,26 +45,21 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
         print("  Double-check the spelling (e.g. 'LeBron James', 'Stephen Curry')\n")
         return   # stop the function here and go back to the menu
 
-    # Sort oldest to newest for rolling averages
+    #sort oldest to newest for rolling averages
     player_df = player_df.sort_values("gameDateTimeEst", ascending=True).reset_index(drop=True)
 
     print(f"\n  Found {len(player_df)} games for {player_name}  "
           f"({player_df['gameDateTimeEst'].min().date()} to "
           f"{player_df['gameDateTimeEst'].max().date()})")
 
-    # --- Build rolling average features ---
+    # rolling average features
     feature_cols = ["points", "reboundsTotal", "assists",
                     "numMinutes", "fieldGoalsAttempted",
                     "pointsPerMinute", "stealsPerMinute", "reboundsPerMinute",
                     "assistsPerMinute", "blocksPerMinute", "threesPerMinute"]
 
     for col in feature_cols:
-        player_df[f"avg_{col}"] = (
-            player_df[col]
-            .shift(1)
-            .rolling(window=LOOKBACK_GAMES, min_periods=3)
-            .mean()
-        )
+        player_df[f"avg_{col}"] = (player_df[col].shift(1).rolling(window=LOOKBACK_GAMES, min_periods=3).mean())
 
     player_df["is_home"] = player_df["home"]
     player_df = player_df.dropna().reset_index(drop=True)
@@ -80,7 +68,7 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
         print(f"  Not enough game history to make a prediction (need at least 10 games).\n")
         return
 
-    # --- Split into train / test (80% / 20%) ---
+    #split into train/test (80%/20%)
     input_features = [f"avg_{col}" for col in feature_cols] + ["is_home"]
     opponent_cols = [col for col in df_mlp.columns if col.startswith('opp_')]
     input_features.extend(opponent_cols)
@@ -92,7 +80,7 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
     X_train, X_test = X.iloc[:split_index], X.iloc[split_index:]
     y_train, y_test = y.iloc[:split_index], y.iloc[split_index:]
 
-    # --- Train the model (MLPRegressor) ---
+    #Train the model using MLPRegressor
     model = MLPRegressor(hidden_layer_sizes=MLP_HIDDEN_LAYER_SIZES,
                          max_iter=MLP_MAX_ITER,
                          random_state=MLP_RANDOM_STATE,
@@ -101,11 +89,11 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
                          verbose=False) # Set to True to see training progress
     model.fit(X_train, y_train)
 
-    # --- Evaluate accuracy ---
+    #Evaluate accuracy
     y_pred_test = model.predict(X_test)
     mae = mean_absolute_error(y_test, y_pred_test)
 
-    # --- Predict next game with specified opponent and home/away status ---
+    # Predict next game with specified opponent and home/away status
     latest_historical_features = player_df.iloc[[-1]][[f"avg_{col}" for col in feature_cols]].copy()
     latest_input = pd.DataFrame(0, index=[0], columns=input_features)
 
@@ -122,7 +110,7 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
 
     predicted_stat = model.predict(latest_input)[0]
 
-    # --- Print results ---
+    #Print results
     print()
     print("  " + "=" * 48)
     print(f"  PREDICTION  ->  {player_name.upper()}")
@@ -141,7 +129,7 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
     else:
         print(f"  TAKE THE UNDER  ({line - predicted_stat:.1f} below the line)")
 
-    # --- Show last 5 predictions vs actual ---
+    #show last 5 predictions vs actual
     print()
     print("  Last 5 test games (predicted vs actual):")
     comparison = player_df.iloc[split_index:].copy()
@@ -153,9 +141,9 @@ def predict_player_mlp(player_name, stat, line, next_opponent_team, is_home_game
     print()
 
 
-# ============================================================
-#  Step 3: The main loop
-# ============================================================
+
+
+#STEP 3: USER LOOP
 
 VALID_STATS = {
     "1": "points",
@@ -170,7 +158,7 @@ print("Type 'quit' at any prompt to exit.\n")
 
 while True:
 
-    # --- Ask for player name ---
+    #Ask for player name
     print("-" * 55)
     player_input = input("  Player name (e.g. LeBron James): ").strip()
 
@@ -178,7 +166,7 @@ while True:
         print("\nGoodbye!\n")
         break
 
-    # --- Ask for stat ---
+    # Ask for stat
     print()
     print("  Which stat?")
     print("    1 -> Points")
@@ -199,14 +187,14 @@ while True:
 
     stat = VALID_STATS[stat_input]
 
-    # --- Ask for opponent team ---
+    #Ask for opponent team
     opponent_input = input("  Opponent team name (e.g. Lakers): ").strip()
 
     if opponent_input.lower() == "quit":
         print("\nGoodbye!\n")
         break
 
-    # --- Ask for home/away ---
+    #Ask for home/away
     home_away_input = input("  Is the game Home or Away? (type 'home' or 'away'): ").strip().lower()
 
     if home_away_input == "quit":
@@ -219,19 +207,19 @@ while True:
     
     is_home_game_val = 1.0 if home_away_input == "home" else 0.0
 
-    # --- Ask for the over/under line ---
+    #Ask for the over/under line
     line_input = input(f"  Over/Under line for {stat} (e.g. 24.5): ").strip()
 
     if line_input.lower() == "quit":
         print("\nGoodbye!\n")
         break
 
-    # Convert the line to a number — catch typos
+    #convert the line to a number, catch typos
     try:
         line = float(line_input)
     except ValueError:
         print("  That doesn't look like a number. Try something like 24.5\n")
         continue
 
-    # --- Run the prediction! ---
+    #run the prediction
     predict_player_mlp(player_input, stat, line, opponent_input, is_home_game_val)
