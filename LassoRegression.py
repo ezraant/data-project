@@ -2,19 +2,18 @@ import pandas as pd
 from sklearn.linear_model import Lasso
 from sklearn.metrics import mean_absolute_error
 
-# ============================================================
 #  SETTINGS
-# ============================================================
 FILE_PATH      = "UpdatedPlayerStatistics (1).csv"
 WINDOW_LONG    = 20    
 WINDOW_SHORT   = 5     
 LASSO_ALPHA    = 0.01  # Lowered for more sensitivity
 
-# ============================================================
-#  Step 1: Load Data
-# ============================================================
+
+
+# STEP 1: LOAD DATA
+
 print("=" * 55)
-print("   🏀  NBA PREDICTOR: FULL STAT MOMENTUM EDITION")
+print("   NBA PREDICTOR: FULL STAT MOMENTUM EDITION")
 print("=" * 55)
 print("\nLoading data...")
 
@@ -27,9 +26,10 @@ df_lasso = pd.get_dummies(df_lasso, columns=['opponentteamName'], prefix='opp', 
 
 print(f"Ready! Data loaded.\n")
 
-# ============================================================
-#  Step 2: The Prediction Engine
-# ============================================================
+
+
+#STEP 2: PREDICTION ENGINE
+
 def predict_player_lasso(player_name, stat, line, next_opp, is_home_val):
     # Filter to player
     player_df = df_lasso[df_lasso["fullName"] == player_name].copy()
@@ -40,16 +40,16 @@ def predict_player_lasso(player_name, stat, line, next_opp, is_home_val):
 
     player_df = player_df.sort_values("gameDateTimeEst").reset_index(drop=True)
 
-    # --- Feature Engineering ---
+    #feature engineering
     base_cols = ["points", "reboundsTotal", "assists", "steals", "blocks", "threePointersMade",
                  "numMinutes", "pointsPerMinute", "stealsPerMinute", "reboundsPerMinute", 
                  "assistsPerMinute", "blocksPerMinute", "threesPerMinute"]
 
     feature_cols = []
     for col in base_cols:
-        # Long-term average (Baseline)
+        # Long term avg for baseline
         player_df[f"avg20_{col}"] = player_df[col].shift(1).rolling(window=WINDOW_LONG, min_periods=5).mean()
-        # Short-term momentum (Hot Streak)
+        #Short term momentum (weight recent trends differently)
         player_df[f"hot5_{col}"] = player_df[col].shift(1).rolling(window=WINDOW_SHORT, min_periods=2).mean()
         feature_cols.extend([f"avg20_{col}", f"hot5_{col}"])
 
@@ -60,26 +60,26 @@ def predict_player_lasso(player_name, stat, line, next_opp, is_home_val):
         print(f"  Not enough history for {player_name} (need 15+ games).")
         return
 
-    # Build Input Features
+    #make input features
     opponent_cols = [col for col in df_lasso.columns if col.startswith('opp_')]
     input_features = feature_cols + ["is_home"] + opponent_cols
 
     X = player_df[input_features].fillna(0)
     y = player_df[stat]
 
-    # Split (80/20)
+    #split 80/20
     split = int(len(X) * 0.8)
     X_train, X_test = X.iloc[:split], X.iloc[split:]
     y_train, y_test = y.iloc[:split], y.iloc[split:]
 
-    # Train Model
+    #train the model
     model = Lasso(alpha=LASSO_ALPHA, max_iter=10000)
     model.fit(X_train, y_train)
 
-    # Prediction for Next Game
+    #predict next game
     latest_input = pd.DataFrame(0, index=[0], columns=input_features)
     
-    # Use the absolute latest game's rolling stats to predict the upcoming one
+    #use the most recent game's rolling stats to predict the upcoming one
     for col in feature_cols:
         latest_input[col] = player_df[col].iloc[-1]
     
@@ -94,7 +94,7 @@ def predict_player_lasso(player_name, stat, line, next_opp, is_home_val):
     predicted_stat = model.predict(latest_input)[0]
     mae = mean_absolute_error(y_test, model.predict(X_test))
 
-    # Output Results
+    #Output Results
     print("\n  " + "=" * 48)
     print(f"  PREDICTION -> {player_name.upper()} vs {next_opp.upper()}")
     print(f"  Location: {'HOME' if is_home_val == 1 else 'AWAY'}")
@@ -112,9 +112,10 @@ def predict_player_lasso(player_name, stat, line, next_opp, is_home_val):
     else:
         print(f"\n  BETTING ADVICE: TAKE THE UNDER ({line - predicted_stat:.1f})")
 
-# ============================================================
-#  Step 3: User Loop
-# ============================================================
+
+
+#STEP 3: USER LOOP
+
 STATS_MAP = {
     "1": "points", 
     "2": "reboundsTotal", 
