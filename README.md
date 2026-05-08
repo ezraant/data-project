@@ -1,4 +1,4 @@
-#How to run our program in the over/under mode
+# How to run our program in the over/under mode
 
 type: python nba_over_under.py
 
