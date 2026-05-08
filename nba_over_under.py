@@ -25,8 +25,6 @@ df["fullName"] = df["firstName"] + " " + df["lastName"] # combines the first and
 valid_players = df["fullName"].unique().tolist()
 all_teams = sorted(df["opponentteamName"].dropna().unique().tolist())
 
-total_nba_teams = sorted(df["opponentteamName"].dropna().unique().tolist()) #gets a list of every unique NBA team and sorts them into an alphebetical list
-
 print(f"Data Loaded {len(df):,} game rows.\n") #tells the user the data is loaded and the number of games that were loaded
 
 
