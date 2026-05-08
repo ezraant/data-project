@@ -2,7 +2,7 @@ import pandas as pd
 
 
 #Load CSV into a DataFrame
-df = pd.read_csv('PlayerStatistics.csv', low_memory=False)
+df = pd.read_csv('PlayerStatistics (1).csv', low_memory=False)
 
 
 #convert 'gameDateTimeEst' to datetime objects
