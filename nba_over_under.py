@@ -305,7 +305,7 @@ while True: #starting the main loop
             break
         
         if player_input not in valid_players: # ensuring the player exists
-            print(f"\n  ⚠️ Error: '{player_input}' not found in database.")
+            print(f"\n  Error: '{player_input}' not found in database.")
             continue
             
         lookup_stats(player_input)
@@ -321,7 +321,7 @@ while True: #starting the main loop
             break
         
         if player_input not in valid_players: # ensures that the name inputted is in the database
-            print(f"\n  ⚠️ Error: '{player_input}' not found in database.")
+            print(f"\n  Error: '{player_input}' not found in database.")
             continue
 
         # Asks the useer for the desired opponent for the player they inputted
