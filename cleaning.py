@@ -1,28 +1,22 @@
 import pandas as pd
 
-
 #Load CSV into a DataFrame
 df = pd.read_csv('PlayerStatistics (1).csv', low_memory=False)
-
 
 #convert 'gameDateTimeEst' to datetime objects
 df['gameDateTimeEst'] = pd.to_datetime(df['gameDateTimeEst'])
 
-
 #Filter out data from before september 2003
 df_after_2004 = df[df['gameDateTimeEst'] >= '2003-09-01']
-
 
 #only include the columns we need
 columns_to_keep = ['personId', 'firstName', 'lastName', 'gameDateTimeEst', 'playerteamName', 'opponentteamName', 'gameType', 'home', 
                    'numMinutes', 'points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'fieldGoalsAttempted', 'threePointersMade']
 df_filtered = df_after_2004[columns_to_keep]
 
-
 #removing preseason games
 df_filtered = df_filtered[df_filtered['gameType'] != 'Preseason']
 df_filtered = df_filtered[df_filtered['gameType'] != 'All-Star Game']
-
 
 #removing rows with 0 minutes played
 df_filtered['numMinutes'] = pd.to_numeric(df_filtered['numMinutes'], errors='coerce')
@@ -45,21 +39,11 @@ rows_to_remove_condition = before_sept_2023_condition & not_in_set_condition
 # Filter the DataFrame, keeping only the rows that do NOT meet the removal condition
 df_final_filtered = df_filtered[~rows_to_remove_condition].copy()
 
-'''
-print(f"Original df_filtered shape: {df_filtered.shape}")
-print(f"Players who played since Sept 2023: {len(person_ids_since_sept_2023)}")
-print(f"Final filtered DataFrame shape: {df_final_filtered.shape}")
-
-# Display the first few rows of the final filtered DataFrame
-print("\nLast 5 rows of df_final_filtered:")
-print(df_final_filtered.tail())
-'''
 
 #list of columns to convert to numbers
 stats_cols = ['points', 'steals', 'reboundsTotal', 'assists', 'blocks', 'threePointersMade']
 for col in stats_cols:  
     df_final_filtered[col] = pd.to_numeric(df_final_filtered[col], errors='coerce').fillna(0)
-
 
 #making statPerMinute columns
 df_final_filtered['pointsPerMinute'] = (df_final_filtered['points'] / df_final_filtered['numMinutes']).round(5)
