@@ -219,8 +219,8 @@ def predict_player(player_name, selected_stats, lines, opponent, is_home):
 
 
 # stat-lookup
-# if you want to use this not for betting but to look up stats from the database..
-# or if you want to do your own betting research and look up stats yourself..
+# if you want to use this not for betting but to look up stats from the database
+# or if you want to do your own betting research and look up stats yourself
 def lookup_stats(player_name):
     player_df = df[df["fullName"] == player_name].copy()
     if player_df.empty:
@@ -243,6 +243,7 @@ def lookup_stats(player_name):
         
         if year_in == 'current':
             # use the most recent game's calculated season
+            # * was using calendar year before
             target_season = player_df['Season'].max()
         else:
             try:
@@ -256,6 +257,7 @@ def lookup_stats(player_name):
     
     elif choice == "2":
         opp = input("Enter Opponent Name: ").strip()
+        # after opponent name, have option for all time stats or just this seasons stats vs that opponent
         scope = input("1: This Season | 2: Career vs Opponent: ").strip()
         
         if scope == "1":
@@ -279,96 +281,132 @@ def lookup_stats(player_name):
 
 # ===============================================================================================================================================
 
-print("Type 'quit' at any prompt to exit.\n")
+print("Type 'quit' at any prompt to exit.\n") #throughout this loop, if the user types 'quit', the program will end
 
-while True:
+while True: #starting the main loop
 
-    print("=" * 55)
-    print("  MAIN MENU")
-    print("  1-> Betting Predictions (Ridge Model)")
-    print("  2-> Stat Lookup (Averages/History)")
-    print("=" * 55)
+    print("==================================================")
+    print("  menu")
+    print("  1 ->betting predictions (ridge model)")
+    print("  2 ->stat lookup (averages/history)")
+    print("==================================================")
 
-    mode = input("Select Mode: ").strip().lower()
-    if mode in ["quit", "q", "exit"]: break
+    mode = input("select mode: ").strip().lower()
 
-    if mode == "1":
-        # per player
-        player_input = input("  Player name (e.g. LeBron James): ").strip()
+    if mode == "quit":
+        print("\nThank you for using our predictor! Goodbye.\n")
+        break
+
+    # stat-lookup
+    if mode == "2":
+        player_input = input("  Player Name: ").strip()
         if player_input.lower() == "quit":
-            print("\nGoodbye!\n")
+            print("\nThank you for using our predictor! Goodbye.\n")
             break
-        if player_input not in valid_players:
-            print(f"\n   ⚠️ Error: '{player_input}' not found in database.")
-            print("   Check spelling and capitalization (e.g., 'Jalen Brunson').")
+        
+        if player_input not in valid_players: # ensuring the player exists
+            print(f"\n  ⚠️ Error: '{player_input}' not found in database.")
+            continue
+            
+        lookup_stats(player_input)
+        continue # return to main menu after lookup
+
+   # betting predicts mode
+    elif mode == "1":
+        # Asks for the user to input the player name
+        player_input = input("  Player Name (e.g. LeBron James): ").strip()
+
+        if player_input.lower() == "quit":
+            print("\nThank you for using our predictor! Goodbye.\n")
+            break
+        
+        if player_input not in valid_players: # ensures that the name inputted is in the database
+            print(f"\n  ⚠️ Error: '{player_input}' not found in database.")
             continue
 
-        # per opponent
-        print(f"\n  Available teams: {', '.join(all_teams)}")
-        opponent_input = input("  Opponent team name (e.g. Celtics): ").strip()
+        # Asks the useer for the desired opponent for the player they inputted
+        print(f"\n  Available Teams: {', '.join(all_teams)}")
+
+        opponent_input = input("  Opponent Team Name (e.g. Knicks): ").strip()
+
         if opponent_input.lower() == "quit":
-            print("\nGoodbye!\n")
+            print("\nThank you for using our predictor! Goodbye.\n")
             break
-        if opponent_input not in all_teams:
-            print(f"\n  Could not find '{opponent_input}'. Check the team list above.\n")
+
+        if opponent_input not in all_teams: #ensures that the team the user inputted is in the NBA
+            print(f"\n  Could not find '{opponent_input}'. Please refer to the team list above.\n") #if the user inputs an invalid team name
             continue
 
-        # --- Home or away ---
-        location_input = input("  Home or Away? (h/a): ").strip().lower()
+        # Ask the user if it is a home or away game
+        location_input = input("  Home or Away Game? (h/a): ").strip().lower()
+
         if location_input == "quit":
-            print("\nGoodbye!\n")
+            print("\nThank you for using our predictor! Goodbye.\n")
             break
-        if location_input not in ["h", "a"]:
-            print("  Please type h for home or a for away.\n")
+
+        if location_input not in ["h", "a"]: #if the user does not input an h (home) or a (away)
+            print("  Please type an 'h' for a home game or an 'a' for an away game.\n")
             continue
+
         is_home = location_input == "h"
 
-        # pick predicted stats
+        # Prompt the user to input any number(s) 1-6 to indicate what stat they are interested in
         print()
-        print("  Which stats do you want predictions for?")
-        for key, (stat, label) in STATS.items():
-            print(f"    {key} -> {label}")
-        print("  Enter numbers separated by commas (e.g. 1,2,3 or 1,4,5,6)")
-        stat_input = input("  Your choice: ").strip()
+
+        print("Which stat(s) do you want predictions for?")
+
+        for key, (stat, label) in STATS.items(): #loop to display the menu of options for the user
+            print(f"{key} -> {label}")
+
+        print("  Enter numbers separated by commas (e.g. 1,2,3 or 1,3,5,)")
+
+        stat_input = input(" Your choice: ").strip()
 
         if stat_input.lower() == "quit":
-            print("\nGoodbye!\n")
+            print("\nThank you for using our predictor! Goodbye.\n")
             break
 
-        # parse user stats picked
-        chosen_keys = [s.strip() for s in stat_input.split(",")]
-        selected_stats = []
+        
+        selected_category = [s.strip() for s in stat_input.split(",")] #converts the input into ["1", "3" "5"] if the user did "1,3,5"
+        selected_stats = [] #holds the stat column and its label in a tuple
+
         valid = True
-        for key in chosen_keys:
+        for key in selected_category: #loops through each category/number the user selected
             if key not in STATS:
                 print(f"  '{key}' is not a valid option. Please pick from 1-6.\n")
                 valid = False
                 break
-            selected_stats.append(STATS[key])  # (stat_col, label)
+
+            selected_stats.append(STATS[key])  # add the (stat_col, label) tuple to the list
 
         if not valid:
             continue
 
         print()
+
         lines = {}
-        for stat, label in selected_stats:
-            line_input = input(f"  O/U line for {label} (e.g. 2.5): ").strip()
+        valid = True
+
+        for stat, label in selected_stats: #loops through every stat category the user chose
+            line_input = input(f"  O/U line for {label} (e.g. 4.5): ").strip() #prompts the user to input the actual over/under line
+            
             if line_input.lower() == "quit":
-                print("\nGoodbye!\n")
+                print("\nThank you for using our predictor! Goodbye.\n")
                 valid = False
                 break
+
             try:
-                lines[stat] = float(line_input)
-            except ValueError:
-                print(f"  That doesn't look like a number. Try again.\n")
+                lines[stat] = float(line_input) #converts the input into an actual number/float
+
+            except ValueError: #occurs if the value inputted is not a valid number
+                print(f"  That doesn't look like a valid number or input. Please try again.\n")
                 valid = False
                 break
 
         if not valid:
-            break
+            continue # changed to continue to return to menu instead of breaking
 
         predict_player(player_input, selected_stats, lines, opponent_input, is_home)
-    elif mode == "2":
-        name = input("\nPlayer Name: ").strip()
-        if name.lower() in ["quit", "q"]: break
-        lookup_stats(name)
+    
+    else:
+        print("  Invalid mode selection. Please type 1 or 2.")
